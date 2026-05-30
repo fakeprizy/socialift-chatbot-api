@@ -42,9 +42,18 @@ async function sendWhatsAppNotification(name, business) {
   await fetch(url)
 }
 
+async function sendSheetNotification(name, business) {
+  await fetch('https://script.google.com/macros/s/AKfycbz3UxNlSGwg-ZWn_m0QCHXvQZ25fLEPMSgw_b1wkJJ6c_dFwIl2jAl-nFOmapcY2GqN/exec', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, business }),
+  })
+}
+
 async function notifyLead(name, business) {
   try { await sendEmailNotification(name, business) } catch (e) { console.error('Email error:', e.message) }
   try { await sendWhatsAppNotification(name, business) } catch (e) { console.error('WhatsApp error:', e.message) }
+  try { await sendSheetNotification(name, business) } catch (e) { console.error('Sheet error:', e.message) }
 }
 
 // ── System prompt ──────────────────────────────────────────────────────────
