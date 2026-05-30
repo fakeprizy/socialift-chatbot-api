@@ -16,7 +16,7 @@ const transporter = nodemailer.createTransport({
 })
 
 // ── Notification helpers ───────────────────────────────────────────────────
-async function sendEmailNotification(name, business) {
+async function sendEmailNotification(name, business, contact) {
   await transporter.sendMail({
     from: `"Vela — Socialift" <${process.env.GMAIL_USER}>`,
     to: process.env.GMAIL_USER,
@@ -26,6 +26,7 @@ async function sendEmailNotification(name, business) {
         <h2 style="margin:0 0 16px">New lead captured by Vela</h2>
         <p><strong>Name:</strong> ${name}</p>
         <p><strong>Business:</strong> ${business}</p>
+        <p><strong>Contact:</strong> ${contact}</p>
         <p><strong>Time:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
         <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
         <p style="color:#888;font-size:13px">Vela — Socialift AI</p>
@@ -34,27 +35,28 @@ async function sendEmailNotification(name, business) {
   })
 }
 
-async function sendWhatsAppNotification(name, business) {
+async function sendWhatsAppNotification(name, business, contact) {
   const phone = encodeURIComponent(process.env.CALLMEBOT_PHONE)
   const apiKey = process.env.CALLMEBOT_API_KEY
-  const msg = encodeURIComponent(`New lead from Vela\nName: ${name}\nBusiness: ${business}`)
+  const msg = encodeURIComponent(`New lead from Vela\nName: ${name}\nBusiness: ${business}\nContact: ${contact}`)
   const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${msg}&apikey=${apiKey}`
   await fetch(url)
 }
 
-async function sendSheetNotification(name, business) {
+async function sendSheetNotification(name, business, contact) {
   await fetch('https://script.google.com/macros/s/AKfycbz3UxNlSGwg-ZWn_m0QCHXvQZ25fLEPMSgw_b1wkJJ6c_dFwIl2jAl-nFOmapcY2GqN/exec', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, business }),
+    body: JSON.stringify({ name, business, contact }),
   })
 }
 
-async function notifyLead(name, business) {
-  try { await sendEmailNotification(name, business) } catch (e) { console.error('Email error:', e.message) }
-  try { await sendWhatsAppNotification(name, business) } catch (e) { console.error('WhatsApp error:', e.message) }
-  try { await sendSheetNotification(name, business) } catch (e) { console.error('Sheet error:', e.message) }
+async function notifyLead(name, business, contact) {
+  try { await sendEmailNotification(name, business, contact) } catch (e) { console.error('Email error:', e.message) }
+  try { await sendWhatsAppNotification(name, business, contact) } catch (e) { console.error('WhatsApp error:', e.message) }
+  try { await sendSheetNotification(name, business, contact) } catch (e) { console.error('Sheet error:', e.message) }
 }
+
 
 // ── System prompt ──────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are Vela, the AI assistant for Socialift — a web design and AI tools agency run by Priyanshu. You are not just a chatbot. You are the product. Every conversation you have is a live demonstration of what Socialift builds for clients. Be sharp, be warm, be genuinely useful. Leave every visitor thinking "I want this on my website."
@@ -121,14 +123,17 @@ A: Free tools give you a generic, template-driven bot that takes days to configu
 
 ---
 
-LEAD CAPTURE — critical. When someone shows interest in a website or wants to talk, collect their details naturally before giving the Calendly link. One question at a time:
+LEAD CAPTURE — critical. When someone shows interest in a website or wants to talk, collect their details naturally before giving the Calendly link. One question at a time, never all at once:
 
-Ask their name first. Then ask what kind of business they run. Once you have both, say something like: "Perfect — I'm flagging this for Priyanshu right now. Here's the link to lock in a time with him directly: https://calendly.com/fakeprizy/30min"
+1. Ask their name
+2. Ask what kind of business they run
+3. Ask for their WhatsApp number or email — say something like: "And what's the best way to reach you — WhatsApp or email?"
+4. Once you have all four details, say something like: "Perfect — Priyanshu will be in touch shortly. Here's the link to lock in a time with him directly: https://calendly.com/fakeprizy/30min"
 
-IMPORTANT: The moment you have collected both the person's name AND their business type, you MUST append this exact tag to the END of your message (after your normal reply, on a new line, with no spaces around it):
-<!--LEAD:name=THEIR_NAME|business=THEIR_BUSINESS-->
+IMPORTANT: The moment you have collected the person's name, business type, AND their contact (WhatsApp or email), you MUST append this exact tag to the END of your message (after your normal reply, on a new line, with no spaces around it):
+<!--LEAD:name=THEIR_NAME|business=THEIR_BUSINESS|contact=THEIR_CONTACT-->
 
-Replace THEIR_NAME and THEIR_BUSINESS with the actual values. This tag is invisible to the user. Only include it once, the first time you have both pieces of information.
+Replace each value with the actual information given. This tag is invisible to the user. Only include it once, the first time you have all three pieces of information.
 
 ---
 
@@ -148,9 +153,9 @@ FALLBACK — if something falls outside your knowledge: "That's a great one for 
 
 // ── Lead parser ────────────────────────────────────────────────────────────
 function extractLead(text) {
-  const match = text.match(/<!--LEAD:name=(.+?)\|business=(.+?)-->/)
+  const match = text.match(/<!--LEAD:name=(.+?)\|business=(.+?)\|contact=(.+?)-->/)
   if (!match) return null
-  return { name: match[1].trim(), business: match[2].trim() }
+  return { name: match[1].trim(), business: match[2].trim(), contact: match[3].trim() }
 }
 
 function stripLeadTag(text) {
@@ -184,7 +189,7 @@ app.post('/chat', async (req, res) => {
     const text = stripLeadTag(raw)
 
     if (lead) {
-      notifyLead(lead.name, lead.business)
+      notifyLead(lead.name, lead.business, lead.contact)
     }
 
     res.json({ text })
