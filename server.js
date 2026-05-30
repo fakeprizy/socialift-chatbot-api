@@ -1,37 +1,34 @@
 const express = require('express')
 const cors = require('cors')
 const Anthropic = require('@anthropic-ai/sdk')
-const nodemailer = require('nodemailer')
 
 const app = express()
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-// ── Email transporter ──────────────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-})
-
 // ── Notification helpers ───────────────────────────────────────────────────
 async function sendEmailNotification(name, business, contact) {
-  await transporter.sendMail({
-    from: `"Vela — Socialift" <${process.env.GMAIL_USER}>`,
-    to: process.env.GMAIL_USER,
-    subject: `New lead: ${name} — ${business}`,
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;padding:24px">
-        <h2 style="margin:0 0 16px">New lead captured by Vela</h2>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Business:</strong> ${business}</p>
-        <p><strong>Contact:</strong> ${contact}</p>
-        <p><strong>Time:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
-        <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
-        <p style="color:#888;font-size:13px">Vela — Socialift AI</p>
-      </div>
-    `,
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'Vela — Socialift <onboarding@resend.dev>',
+      to: 'build@socialift.tech',
+      subject: `New lead: ${name} — ${business}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;padding:24px">
+          <h2 style="margin:0 0 16px">New lead captured by Vela</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Business:</strong> ${business}</p>
+          <p><strong>Contact:</strong> ${contact}</p>
+          <p><strong>Time:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
+          <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
+          <p style="color:#888;font-size:13px">Vela — Socialift AI</p>
+        </div>
+      `,
+    }),
   })
 }
 
