@@ -1,10 +1,53 @@
 const express = require('express')
 const cors = require('cors')
 const Anthropic = require('@anthropic-ai/sdk')
+const nodemailer = require('nodemailer')
 
 const app = express()
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+// ── Email transporter ──────────────────────────────────────────────────────
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+})
+
+// ── Notification helpers ───────────────────────────────────────────────────
+async function sendEmailNotification(name, business) {
+  await transporter.sendMail({
+    from: `"Vela — Socialift" <${process.env.GMAIL_USER}>`,
+    to: process.env.GMAIL_USER,
+    subject: `New lead: ${name} — ${business}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;padding:24px">
+        <h2 style="margin:0 0 16px">New lead captured by Vela</h2>
+        <p><strong>Name:</strong> ${name}</p>
+        <p><strong>Business:</strong> ${business}</p>
+        <p><strong>Time:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
+        <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
+        <p style="color:#888;font-size:13px">Vela — Socialift AI</p>
+      </div>
+    `,
+  })
+}
+
+async function sendWhatsAppNotification(name, business) {
+  const phone = encodeURIComponent(process.env.CALLMEBOT_PHONE)
+  const apiKey = process.env.CALLMEBOT_API_KEY
+  const msg = encodeURIComponent(`New lead from Vela\nName: ${name}\nBusiness: ${business}`)
+  const url = `https://api.callmebot.com/whatsapp.php?phone=${phone}&text=${msg}&apikey=${apiKey}`
+  await fetch(url)
+}
+
+async function notifyLead(name, business) {
+  try { await sendEmailNotification(name, business) } catch (e) { console.error('Email error:', e.message) }
+  try { await sendWhatsAppNotification(name, business) } catch (e) { console.error('WhatsApp error:', e.message) }
+}
+
+// ── System prompt ──────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are Vela, the AI assistant for Socialift — a web design and AI tools agency run by Priyanshu. You are not just a chatbot. You are the product. Every conversation you have is a live demonstration of what Socialift builds for clients. Be sharp, be warm, be genuinely useful. Leave every visitor thinking "I want this on my website."
 
 ---
@@ -69,11 +112,14 @@ A: Free tools give you a generic, template-driven bot that takes days to configu
 
 ---
 
-LEAD CAPTURE — this is critical. When someone shows interest in a website or wants to talk further, collect their details before giving them the booking link. Do it naturally, not like a form:
+LEAD CAPTURE — critical. When someone shows interest in a website or wants to talk, collect their details naturally before giving the Calendly link. One question at a time:
 
-Ask: "What's your name?" then "And what kind of business are you running?" — once you have both, say something like: "Perfect. I'm flagging this for Priyanshu right now — he'll make sure your slot is ready. Here's the link to lock in a time: https://calendly.com/fakeprizy/30min"
+Ask their name first. Then ask what kind of business they run. Once you have both, say something like: "Perfect — I'm flagging this for Priyanshu right now. Here's the link to lock in a time with him directly: https://calendly.com/fakeprizy/30min"
 
-Never make it feel like an interrogation. One question at a time, conversationally.
+IMPORTANT: The moment you have collected both the person's name AND their business type, you MUST append this exact tag to the END of your message (after your normal reply, on a new line, with no spaces around it):
+<!--LEAD:name=THEIR_NAME|business=THEIR_BUSINESS-->
+
+Replace THEIR_NAME and THEIR_BUSINESS with the actual values. This tag is invisible to the user. Only include it once, the first time you have both pieces of information.
 
 ---
 
@@ -85,12 +131,24 @@ CHATBOT — only product with a public price. ₹4,999/month. Self-serve. Direct
 
 TONE — warm, sharp, confident. Not a corporate FAQ machine. Not overly casual. Think: smart friend who knows their stuff. Vary sentence length. Never use bullet points in responses. Write like a person.
 
-LENGTH — keep responses concise. Two to five sentences is the sweet spot. Go longer only when genuinely needed (detailed FAQ answer, multi-part question).
+LENGTH — keep responses concise. Two to five sentences is the sweet spot. Go longer only when genuinely needed.
 
 NEVER — make up information, invent prices, promise timelines not listed above, or mention competitor tools.
 
 FALLBACK — if something falls outside your knowledge: "That's a great one for Priyanshu directly — drop him a message at build@socialift.tech or WhatsApp him here: https://wa.me/916296571233"`
 
+// ── Lead parser ────────────────────────────────────────────────────────────
+function extractLead(text) {
+  const match = text.match(/<!--LEAD:name=(.+?)\|business=(.+?)-->/)
+  if (!match) return null
+  return { name: match[1].trim(), business: match[2].trim() }
+}
+
+function stripLeadTag(text) {
+  return text.replace(/<!--LEAD:.+?-->/, '').trim()
+}
+
+// ── Route ──────────────────────────────────────────────────────────────────
 app.use(cors())
 app.use(express.json())
 
@@ -104,7 +162,7 @@ app.post('/chat', async (req, res) => {
 
     const response = await client.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 300,
+      max_tokens: 400,
       system: SYSTEM_PROMPT,
       messages: messages.map(m => ({
         role: m.role,
@@ -112,7 +170,14 @@ app.post('/chat', async (req, res) => {
       })),
     })
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+    const lead = extractLead(raw)
+    const text = stripLeadTag(raw)
+
+    if (lead) {
+      notifyLead(lead.name, lead.business)
+    }
+
     res.json({ text })
   } catch (error) {
     console.error('Chat API error:', error.message)
@@ -121,4 +186,4 @@ app.post('/chat', async (req, res) => {
 })
 
 const PORT = process.env.PORT || 3001
-app.listen(PORT, () => console.log(`Socialift chatbot API running on port ${PORT}`))
+app.listen(PORT, () => console.log(`Socialift Vela API running on port ${PORT}`))
